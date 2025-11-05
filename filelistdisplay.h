@@ -12,7 +12,7 @@
 #include <QFileSystemModel>
 #include <QDir>
 #include <QModelIndex>
-#include<QProgressDialog>
+#include <QProgressDialog>
 #include <QMessageBox>
 
 #include "filecoder.h"

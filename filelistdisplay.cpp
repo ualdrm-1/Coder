@@ -15,10 +15,7 @@
         m_VLayout->addLayout(m_HLayout);
         m_VLayout->addLayout(m_bottomLayout);
 
-        m_progressDialog = new QProgressDialog("Processing file...", "Cancel", 0, 100, this);
-        m_progressDialog->setWindowModality(Qt::WindowModal);
-        m_progressDialog->setAutoClose(true);
-        m_progressDialog->setAutoReset(true);
+        m_progressDialog=nullptr;
 
         connect(m_sourceDir, &QListView::doubleClicked, this,
                 &FileListDisplay::on_sourceDir_DoubleClicked);
@@ -42,6 +39,10 @@
             m_coderThread->quit();
             m_coderThread->wait();
         }
+        if(m_currentCoder){
+            delete m_currentCoder;
+            m_currentCoder=nullptr;
+        }
         delete m_HLayout;
         delete m_bottomLayout;
     }
@@ -63,7 +64,7 @@
     }
 
     void FileListDisplay::setBottomPart(){
-        QHBoxLayout* codeLayout = new QHBoxLayout(this);
+        QHBoxLayout* codeLayout = new QHBoxLayout();
         m_bottomLayout = new QVBoxLayout;
 
         m_enterCode = new QLineEdit(this);
@@ -164,15 +165,27 @@
             counter++;
         }
 
-        if (m_coderThread) {
+        if (m_coderThread && m_coderThread->isRunning()) {
             m_coderThread->quit();
             m_coderThread->wait();
             delete m_coderThread;
+            m_coderThread=nullptr;
+        }
+
+        if(m_currentCoder){
+            delete m_coderThread;
+            m_coderThread=nullptr;
+        }
+
+        if (!m_progressDialog) {
+            m_progressDialog = new QProgressDialog("Processing file...", "Cancel", 0, 100, this);
+            m_progressDialog->setWindowModality(Qt::WindowModal);
+            m_progressDialog->setAutoClose(true);
+            m_progressDialog->setAutoReset(true);
         }
 
         m_coderThread = new QThread(this);
         m_currentCoder = new FileCoder(m_fileName, m_code, outputFileName);
-
         m_currentCoder->moveToThread(m_coderThread);
 
         connect(m_coderThread, &QThread::started, m_currentCoder, &FileCoder::process);
@@ -184,11 +197,19 @@
                 m_coderThread->quit();
                 m_coderThread->wait();
             }
+            if(m_currentCoder){
+                m_currentCoder->deleteLater();
+                m_currentCoder=nullptr;
+            }
         });
 
         connect(m_currentCoder, &FileCoder::finished, m_coderThread, &QThread::quit);
         connect(m_currentCoder, &FileCoder::finished, m_currentCoder, &FileCoder::deleteLater);
         connect(m_coderThread, &QThread::finished, m_coderThread, &QThread::deleteLater);
+        connect(m_coderThread, &QThread::finished, this, [this]() {
+            m_coderThread = nullptr;
+        });
+
 
         m_progressDialog->setValue(0);
         m_progressDialog->show();
@@ -222,7 +243,8 @@
 
     void FileListDisplay::on_CoderProgress(int percent)
     {
-        m_progressDialog->setValue(percent);
+        if(m_progressDialog && !m_progressDialog->wasCanceled())
+            m_progressDialog->setValue(percent);
     }
 
     void FileListDisplay::on_CoderFinished(bool success)
@@ -232,11 +254,13 @@
             QMessageBox::information(this, "Success", "File processed successfully!");
         }
         m_currentCoder = nullptr;
+        m_fileName.clear();
     }
 
     void FileListDisplay::on_CoderError(const QString& error)
     {
         m_progressDialog->cancel();
+        m_progressDialog->hide();
         QMessageBox::critical(this, "Error", error);
         m_currentCoder = nullptr;
     }
